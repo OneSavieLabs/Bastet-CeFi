@@ -20,10 +20,8 @@ prevent next web2 injection incident
 
 ```bash
 # Initialize virtual environment and install dependencies
-pyenv virtualenv 3.11 Bastet-CeFi
-pyenv activate Bastet-CeFi
-poetry shell
-poetry install
+
+uv sync
 ```
 
 2. Configure environment variables in `.env`:
@@ -50,7 +48,7 @@ docker-compose up -d
 How to download target website all JS files
 
 ```bash
-poetry run python cli/main.py scan
+uv run cli/main.py scan
 ```
 
 ## Tech Stack:
