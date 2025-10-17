@@ -7,10 +7,7 @@
       },
       "type": "@n8n/n8n-nodes-langchain.chatTrigger",
       "typeVersion": 1.1,
-      "position": [
-        -20,
-        560
-      ],
+      "position": [-20, 560],
       "id": "814ed08a-7862-42c8-a163-416f66e30e2f",
       "name": "When chat message received",
       "webhookId": "f5f85523-606f-4662-aa9b-e65ecc1008e2"
@@ -21,10 +18,7 @@
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        480,
-        440
-      ],
+      "position": [480, 440],
       "id": "e6faec66-c473-4eef-8b46-d039aae4609c",
       "name": "Code"
     },
@@ -36,10 +30,7 @@
       },
       "type": "n8n-nodes-base.splitInBatches",
       "typeVersion": 3,
-      "position": [
-        700,
-        440
-      ],
+      "position": [700, 440],
       "id": "b81b5a28-8b20-4379-b7da-b3afe05b6062",
       "name": "Loop Over Items",
       "alwaysOutputData": false,
@@ -60,10 +51,7 @@
       },
       "type": "@n8n/n8n-nodes-langchain.chainLlm",
       "typeVersion": 1.5,
-      "position": [
-        920,
-        540
-      ],
+      "position": [920, 540],
       "id": "90ca74dd-3c72-40b7-b747-8cee617cefbd",
       "name": "Basic LLM Chain1",
       "alwaysOutputData": true,
@@ -76,23 +64,22 @@
       },
       "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
       "typeVersion": 1.2,
-      "position": [
-        1068,
-        760
-      ],
+      "position": [1068, 760],
       "id": "f3ef4259-d63c-4062-90dc-48a7703e8e83",
       "name": "Structured Output Parser1"
     },
     {
       "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o-mini"
+        },
         "options": {}
       },
       "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
       "typeVersion": 1,
-      "position": [
-        948,
-        760
-      ],
+      "position": [948, 760],
       "id": "508c925c-c87b-4f7f-8349-5fb9902ed7ca",
       "name": "LLM for answer1",
       "credentials": {
@@ -109,10 +96,7 @@
       },
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [
-        1000,
-        240
-      ],
+      "position": [1000, 240],
       "id": "173a3b7a-64eb-4b27-85ab-15ea91ba24fb",
       "name": "Respond to Webhook"
     },
@@ -125,10 +109,7 @@
       },
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [
-        -20,
-        380
-      ],
+      "position": [-20, 380],
       "id": "49444b55-1f21-4e1b-b810-a34fb7076887",
       "name": "Webhook",
       "webhookId": "430a1238-287c-4fe0-9a93-0b2aeae2d843"
@@ -149,10 +130,7 @@
       },
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [
-        280,
-        380
-      ],
+      "position": [280, 380],
       "id": "567a6306-d30d-4ed1-838d-100bc0396b0c",
       "name": "Edit Fields"
     }
