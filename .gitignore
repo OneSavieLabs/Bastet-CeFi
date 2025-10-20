@@ -198,3 +198,7 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+.vscode/settings.json
+
+scan_queue/

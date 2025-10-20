@@ -2,7 +2,7 @@
 
 import typer
 
-from . import import_workflow as import_workflow_tool
+from . import import_workflow
 
 app = typer.Typer()
 
@@ -20,4 +20,4 @@ def default(
         help="The URL of the n8n",
     ),
 ):
-    import_workflow_tool.import_workflow(workflow_path, n8n_url)
+    import_workflow.import_workflow(workflow_path, n8n_url)
