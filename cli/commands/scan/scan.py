@@ -1,75 +1,182 @@
-def scan(domain: str):
-    import requests
-    from bs4 import BeautifulSoup
+def scan_v1(
+    folder_path: str,
+    n8n_url: str,
+    report_name: str,
+    output_path: str,
+):
+    import glob
     import os
-    import urllib.parse
-    
-    """
-    下載指定網域的所有 JavaScript 檔案 () only that url, and only internal js files can be trigger by the url    
-    參數:
-        domain: 要下載 JS 檔案的網域 (例如 'example.com')
-    """
-    # 確保網域格式正確
-    if not domain.startswith('http'):
-        url = f'https://{domain}'
+
+    import pandas as pd
+    import requests
+    from models.audit_report import AuditReport
+    from models.n8n.node import WebhookNode
+    from pydantic import ValidationError
+    from tqdm import tqdm
+    from utils.report_generator import generate_md
+
+    tqdm.write("Scanning contracts...")
+
+    contract_files = glob.glob(os.path.join(folder_path, "**/*.js"), recursive=True)
+    total_files = len(contract_files)
+    tqdm.write(f"Found {total_files} contract files.")
+
+    response = requests.get(
+        f"{n8n_url}/api/v1/workflows",
+        headers={"X-N8N-API-KEY": os.getenv("N8N_API_KEY")},
+    )
+    if response.status_code != 200:
+        tqdm.write(
+            f"\033[91m❌ Error fetching workflows: {response.status_code} - {response.text}\033[0m"
+        )
+        return
+    workflows = []
+    for workflow in response.json()["data"]:
+        if workflow["active"]:
+            workflows.append(workflow)
+
+    if workflows:
+        tqdm.write(f"Found {len(workflows)} active processor workflows.")
+        tqdm.write(f"-" * 50)
+        vulnerabilities: list[tuple[str, AuditReport]] = []
+        # audit_reports: list[AuditReport] = []
+        for contract_file in tqdm(
+            contract_files,
+            desc="Processing contracts",
+            unit="file",
+            ncols=100,
+            colour="blue",
+            bar_format="{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} files [Time: {elapsed}]",
+            mininterval=0.01,
+            # file=sys.stdout,
+        ):
+            tqdm.write(f"start scanning contract: {contract_file}")
+            tqdm.write(f"-" * 50)
+            contract_name = os.path.basename(contract_file)
+            with open(contract_file, "r") as file:
+                contract_content = file.read()
+                file.close()
+
+            for workflow in tqdm(
+                workflows,
+                desc="Fetching workflows",
+                unit="workflow",
+                ncols=100,
+                colour="red",
+                bar_format="{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} workflows [Time: {elapsed}]",
+                mininterval=0.01,
+            ):
+                workflow_name = workflow["name"]
+                tqdm.write(f"\033[92mstart workflow: {workflow_name}\033[0m")
+
+                webhook_node = next(
+                    (
+                        WebhookNode(**node)
+                        for node in workflow["nodes"]
+                        if node["type"] == "n8n-nodes-base.webhook"
+                    ),
+                    None,
+                )
+                if not webhook_node:
+                    tqdm.write(
+                        f"\033[91m❌ No valid webhook node found in workflow: {workflow['name']}\033[0m"
+                    )
+                    continue
+                webhook_url = webhook_node.get_webhook_url(n8n_url)
+                response = requests.post(
+                    webhook_url,
+                    json={"prompt": contract_content, "mode": "trace"},
+                    headers={"Content-Type": "application/json"},
+                )
+                execution_id = response.text
+
+                execution_url = (
+                    f"{n8n_url}/api/v1/executions/{execution_id}?includeData=true"
+                )
+                headers = {"X-N8N-API-KEY": os.getenv("N8N_API_KEY")}
+                current_stage = ""
+                while True:
+                    response = requests.get(execution_url, headers=headers)
+                    execution_data = response.json()
+
+                    if execution_data["finished"]:
+                        break
+
+                    node_execution_stack = execution_data["data"]["executionData"].get(
+                        "nodeExecutionStack", []
+                    )
+
+                    if (
+                        node_execution_stack
+                        and current_stage != node_execution_stack[0]["node"]["name"]
+                    ):
+                        current_stage = node_execution_stack[0]["node"]["name"]
+
+                        tqdm.write(f"Current Node: {current_stage}")
+                # final data parsing:
+                final_node_name = execution_data["data"]["resultData"][
+                    "lastNodeExecuted"
+                ]
+                workflow_reports = execution_data["data"]["resultData"]["runData"][
+                    final_node_name
+                ][0]["data"]["main"][0]
+                if workflow_reports:
+                    cnt = 0
+
+                    for report in workflow_reports:
+                        for report_json in report["json"].get("output", ["exception"]):
+                            if report_json == "exception":
+                                tqdm.write(
+                                    f"\033[91m❌ Model output doesn't fit required format, escape one\033[0m"
+                                )
+                                continue
+                            try:
+                                vulnerability = AuditReport(**report_json)
+                                vulnerabilities.append((contract_name, vulnerability))
+                                cnt += 1
+                            except ValidationError as e:
+                                tqdm.write(
+                                    f"\033[91m❌ Error parsing report: {e}\033[0m"
+                                )
+                                continue
+                    if cnt == 0:
+                        tqdm.write(
+                            f"\033[92m✅ No vulnerability found in contract: {contract_file}\033[0m"
+                        )
+                    else:
+                        tqdm.write(
+                            f"\033[93m⚠️ Found {cnt} vulnerabilities in contract: {contract_file}\033[0m"
+                        )
+                tqdm.write(f"-" * 50)
+
+            # Create a DataFrame for all vulnerabilities in the current contract
+        df = pd.DataFrame(
+            [
+                {
+                    "File Name": contract_name,
+                    "Summary": report.summary,
+                    "Severity": report.severity,
+                    "Vulnerability": report.vulnerability_details,
+                    "Recommendation": report.recommendation,
+                }
+                for contract_name, report in vulnerabilities
+            ]
+        )
+
+        if not os.path.exists(output_path):
+            os.makedirs(output_path, exist_ok=True)
+
+        md_file_path = f"{output_path}{report_name}.md"
+
+        if df.empty:
+            with open(md_file_path, "w") as f:
+                f.write("# Audit Report\n\nNo vulnerabilities found.\n")
+        else:
+            md_content = generate_md(df, md_file_path)
+            tqdm.write(f"✅ Markdown successfully generated: {md_file_path}")
+
     else:
-        url = domain
-    # 建立儲存檔案的資料夾
-    domain_name = urllib.parse.urlparse(url).netloc
-    if url.startswith('https://'):
-        prefix = "https://" + domain_name
-    else:
-        prefix = "http://" + domain_name
-    output_dir = f'./scan_queue/'
-    os.makedirs(output_dir, exist_ok=True)
-    print(f'開始從 {url} 下載 JavaScript 檔案...')
-    try:
-        # 發送 HTTP 請求獲取網頁內容
-        response = requests.get(url)
-        response.raise_for_status()  # 如果請求失敗則拋出例外
-        # 解析 HTML
-        soup = BeautifulSoup(response.text, 'html.parser')
-        # 找出所有的 script 標籤
-        script_tags = soup.find_all('script')
-        # 用來追蹤已下載的檔案數量
-        downloaded_count = 0
-        # 遍歷所有 script 標籤
-        for i, script in enumerate(script_tags):
-            src = script.get('src')
-            # 只處理有 src 屬性的 script 標籤
-            if src:
-                print(src)
-                # 處理相對路徑和絕對路徑
-                if src.startswith('//'):
-                    js_url = f'https:{src}'
-                elif src.startswith('/'):
-                    js_url = f'{prefix}{src}'
-                elif not src.startswith(('http://', 'https://')):
-                    js_url = f'{prefix}/{src}'
-                else:
-                    js_url = src
-                # 確保只下載指定網域的 JS 檔案
-                js_domain = urllib.parse.urlparse(js_url).netloc
-                
-                if domain_name in js_domain:
-                    try:
-                        # 下載 JS 檔案
-                        js_response = requests.get(js_url)
-                        print(f'正在下載: {js_url}')
-                        print(js_response)
-                        js_response.raise_for_status()
-                        # 從 URL 中取得檔案名稱，若沒有則使用索引
-                        filename = os.path.basename(urllib.parse.urlparse(js_url).path)
-                        if not filename or not filename.endswith('.js'):
-                            filename = f'script_{i}.js'
-                        # 儲存檔案
-                        file_path = os.path.join(output_dir, filename)
-                        with open(file_path, 'wb') as f:
-                            f.write(js_response.content)
-                        print(f'已下載: {filename}')
-                        downloaded_count += 1
-                    except Exception as e:
-                        print(f'下載 {js_url} 時發生錯誤: {e}')
-        print(f'完成！共下載了 {downloaded_count} 個 JavaScript 檔案到 {output_dir} 資料夾。')
-    except Exception as e:
-        print(f'發生錯誤: {e}')
+        tqdm.write(
+            f"\033[91m❌ No active processor workflows found. Please turn on the workflow in n8n or follow README to setup correctly. \033[0m"
+        )
+        return

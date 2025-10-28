@@ -1,9 +1,6 @@
-import collect
 import dotenv
-import scan
 import typer
-
-import init
+from commands import collect, init, scan
 
 dotenv.load_dotenv()
 app = typer.Typer()
